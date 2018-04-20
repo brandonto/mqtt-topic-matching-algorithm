@@ -1,4 +1,5 @@
 #include <iostream>
+#include <memory>
 #include <set>
 #include <sstream>
 #include <string>
@@ -71,7 +72,8 @@ public:
     class TrieNode
     {
     public:
-        typedef std::unordered_map<std::string, TrieNode*> HashTable;
+        typedef std::shared_ptr<TrieNode> TrieNodePtr;
+        typedef std::unordered_map<std::string, TrieNodePtr> HashTable;
         typedef HashTable TrieNodes;
 
         TrieNode()
@@ -85,10 +87,10 @@ public:
 
         ~TrieNode()
         {
-            for (auto it = nodes_m.begin(); it != nodes_m.end(); it++)
-            {
-                delete (*it).second;
-            }
+            //for (auto it = nodes_m.begin(); it != nodes_m.end(); it++)
+            //{
+            //    delete (*it).second;
+            //}
             nodes_m.clear();
         }
 
@@ -99,14 +101,15 @@ public:
             return childNodeExists;
         }
 
-        TrieNode* getChildNode(std::string topic)
+        TrieNodePtr getChildNode(std::string topic)
         {
             return nodes_m[topic];
         }
 
         bool createChildNode(std::string topic)
         {
-            nodes_m[topic] = new TrieNode(topic);
+            //nodes_m[topic] = new TrieNode(topic);
+            nodes_m[topic] = TrieNodePtr(new TrieNode(topic));
             return true;
         }
 
@@ -169,8 +172,10 @@ public:
         std::set<SubscriberId> subscriberIds_m;
         TrieNodes nodes_m;
     };
+    typedef TrieNode::TrieNodePtr TrieNodePtr;
 
-    TopicTrie()
+    TopicTrie() :
+        rootNode_mp(new TrieNode())
     {
     }
 
@@ -178,7 +183,7 @@ public:
             SubscriberId subscriberId,
             const std::vector<std::string>& topicTokens)
     {
-        TrieNode* currNode_p = &rootNode_m;
+        TrieNodePtr currNode_p = rootNode_mp;
         for (auto it = topicTokens.begin(); it != topicTokens.end(); it++)
         {
             std::string token = *it;
@@ -213,7 +218,7 @@ public:
             const std::vector<std::string>& topicTokens)
     {
         std::vector<std::string>::const_iterator it = topicTokens.begin();
-        return walkTrieRemoveSubscription(&rootNode_m, it, topicTokens, subscriberId);
+        return walkTrieRemoveSubscription(rootNode_mp, it, topicTokens, subscriberId);
     }
 
     std::vector<SubscriberId> getSubscriptionMatches(
@@ -221,13 +226,13 @@ public:
     {
         std::vector<SubscriberId> matches;
         std::vector<std::string>::const_iterator it = topicTokens.begin();
-        walkTrieGetMatches(&rootNode_m, it, topicTokens, matches);
+        walkTrieGetMatches(rootNode_mp, it, topicTokens, matches);
         return matches;
     }
 
 private:
     void walkTrieGetMatches(
-            TrieNode* currNode_p,
+            TrieNodePtr currNode_p,
             std::vector<std::string>::const_iterator it,
             const std::vector<std::string>& topicTokens,
             std::vector<SubscriberId>& matches)
@@ -270,7 +275,7 @@ private:
         if (currNode_p->hasChildNode("+"))
         {
             //std::cout << "Walked node: +" << std::endl;
-            TrieNode* slwcNode_p = currNode_p->getChildNode("+");
+            TrieNodePtr slwcNode_p = currNode_p->getChildNode("+");
             std::vector<std::string>::const_iterator nextTokenIt = it+1;
             walkTrieGetMatches(slwcNode_p, nextTokenIt, topicTokens, matches);
         }
@@ -292,13 +297,11 @@ private:
         }
 
         //std::cout << "Walked node: " << token << std::endl;
-        TrieNode* nextNode_p = currNode_p->getChildNode(token);
+        TrieNodePtr nextNode_p = currNode_p->getChildNode(token);
 
         walkTrieGetMatches(nextNode_p, ++it, topicTokens, matches);
     }
 
-
-    //
     // Removes a subscription from a node on the trie. This will delete the node
     // (and any of its parent nodes) if there are no other subscriptions to it.
     //
@@ -314,26 +317,9 @@ private:
     //
     // Returns true if the subscriber was successfully deleted
     // Returns false otherwise
-    //
-    //
-    // First walk:
-    // currNode_p = &root
-    // it = a
-    //
-    // Second walk:
-    // currNode_p = &a
-    // it = b
-    //
-    // Third Walk:
-    // currNode_p = &b
-    // it = d
-    //
-    // Fourth walk:
-    // currNode_p = &d
-    // it = end
     // 
     bool walkTrieRemoveSubscription(
-            TrieNode* currNode_p,
+            TrieNodePtr currNode_p,
             std::vector<std::string>::const_iterator it,
             const std::vector<std::string>& topicTokens,
             SubscriberId subscriberId)
@@ -356,7 +342,7 @@ private:
         }
 
         //std::cout << "Walked node: " << token << std::endl;
-        TrieNode* nextNode_p = currNode_p->getChildNode(token);
+        TrieNodePtr nextNode_p = currNode_p->getChildNode(token);
         std::vector<std::string>::const_iterator nextTokenIt = it+1;
 
         if (!walkTrieRemoveSubscription(nextNode_p, nextTokenIt, topicTokens, subscriberId))
@@ -379,16 +365,16 @@ private:
     }
 
     void handleMultiLevelWildcardChildNode(
-            TrieNode* currNode_p,
+            TrieNodePtr currNode_p,
             std::vector<SubscriberId>& matches)
     {
         //std::cout << "Walked node: #" << std::endl;
-        TrieNode* mlwcNode_p = currNode_p->getChildNode("#");
+        TrieNodePtr mlwcNode_p = currNode_p->getChildNode("#");
         addNodeSubscriptionsToMatches(mlwcNode_p, matches);
     }
 
     void addNodeSubscriptionsToMatches(
-            TrieNode* node_p,
+            TrieNodePtr node_p,
             std::vector<SubscriberId>& matches)
     {
         std::set<SubscriberId> subscriberIds = node_p->getSubscriberIds();
@@ -399,7 +385,7 @@ private:
         }
     }
 
-    TrieNode rootNode_m;
+    TrieNodePtr rootNode_mp;
 };
 
 class TopicManager
