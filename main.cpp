@@ -137,12 +137,10 @@ public:
         for (auto it = topicTokens.begin(); it != topicTokens.end(); it++)
         {
             std::string token = *it;
-            if (currNode_p->hasChildNode(token))
-            {
-                //std::cout << "Walked node: " << token << std::endl;
-                currNode_p = currNode_p->getChildNode(token);
-            }
-            else
+
+            // Create the child node if one does not exist
+            //
+            if (!currNode_p->hasChildNode(token))
             {
                 if (!currNode_p->createChildNode(token))
                 {
@@ -150,11 +148,12 @@ public:
                     return;
                 }
                 //std::cout << "Created node: " << token << std::endl;
-                currNode_p = currNode_p->getChildNode(token);
             }
 
-            // Mark the node with the subscriber ID if this is the last token in
-            // the subscription string
+            //std::cout << "Walked node: " << token << std::endl;
+            currNode_p = currNode_p->getChildNode(token);
+
+            // Add the subscriber ID to the node if this is the last topic token
             //
             if (it == (topicTokens.end()-1))
             {
@@ -180,22 +179,22 @@ private:
                             std::vector<SubscriberId>& matches,
                             const std::vector<std::string>& topicTokens)
     {
-        // End of the tokens
-        //
         if (it == topicTokens.end())
         {
+            // We've reached the last topic token, add all subscribers of this
+            // node to the list of matches
+            //
+            addNodeSubscriptionsToMatches(currNode_p, matches);
+
             // This handles the case where there is a multi-level wildcard child
-            // node one level past the end of the topic tokens. This case
-            // results in a match because the multi-level wildcard can match
-            // "0" or more topics.
+            // node one level past the last topic token. This results in a match
+            // because the multi-level wildcard can match zero or more topics.
             //
             if (currNode_p->hasChildNode("#"))
             {
                 handleMultiLevelWildcardChildNode(currNode_p, matches);
             }
 
-            // This handles the case where there the last single-level wildcard
-            //if (currNode_p->getTopic() == "+")
             return;
         }
 
@@ -210,51 +209,37 @@ private:
         }
 
         // If the current node has a single-level wildcard child node, things
-        // get a little trickier... there are two cases:
+        // get a little trickier...
         //
-        // 1. The single-level wildcard node matched the last topic token:
-        //
-        //   Add all subscribers of that node to the list of matches
-        //
-        // 2. The single-level wildcard node didn't match the last topic token:
-        //
-        //   We want to continue to walk the trie in its own seperate state so
-        //   we can backtrack to the current state to finish walking the trie.
+        // We want to continue to walk the trie in its own seperate state so we
+        // can backtrack to the current state to finish walking the trie.
         //
         if (currNode_p->hasChildNode("+"))
         {
             std::cout << "Walked node: +" << std::endl;
             TrieNode* slwcNode_p = currNode_p->getChildNode("+");
             std::vector<std::string>::const_iterator nextTokenIt = it+1;
-
-            // If the single-level wildcard matched the last topic token, then
-            // add all subscribers of that node to the list of matches
-            //
-            if (nextTokenIt == topicTokens.end())
-            {
-                addNodeSubscriptionsToMatches(slwcNode_p, matches);
-            }
-            else
-            {
-                walkTrieGetMatches(slwcNode_p, nextTokenIt, matches, topicTokens);
-            }
+            walkTrieGetMatches(slwcNode_p, nextTokenIt, matches, topicTokens);
         }
 
-        if (!currNode_p->hasChildNode(token) && (token != "+"))
+        // "Normal" cases start here...
+        //
+        // 1. The current node doesn't have a child node matching the topic
+        //    token:
+        //
+        //   Our walk is complete.
+        //
+        // 2. The current node has a child node matching the topic token:
+        //
+        //   Continue walking the trie.
+        //
+        if (!currNode_p->hasChildNode(token))
         {
             return;
         }
 
         std::cout << "Walked node: " << token << std::endl;
         currNode_p = currNode_p->getChildNode(token);
-
-        // If this is the last token in the subscription string, then add all
-        // subscribers of this node to the list of matches
-        //
-        if (it == (topicTokens.end()-1))
-        {
-            addNodeSubscriptionsToMatches(currNode_p, matches);
-        }
 
         walkTrieGetMatches(currNode_p, ++it, matches, topicTokens);
     }
