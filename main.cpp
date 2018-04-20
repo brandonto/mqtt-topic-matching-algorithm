@@ -24,7 +24,9 @@ public:
         return topic_m;
     }
 
-    friend std::ostream &operator<<(std::ostream &s, const SubscriptionRequest& req)
+    friend std::ostream& operator<<(
+            std::ostream& s,
+            const SubscriptionRequest& req)
     {
         return s << "(" << req.subscriberId_m << ", " << req.topic_m << ")";
     }
@@ -48,8 +50,12 @@ void dumpSubscriptionList(SubscriptionList& list)
 class TopicStore
 {
 public:
-    virtual void addTopicTokens(SubscriberId subscriberId, const std::vector<std::string>& topicTokens) = 0;
-    virtual std::vector<SubscriberId> getSubscriptionMatches(const std::vector<std::string>& topicTokens) = 0;
+    virtual void addTopicTokens(
+            SubscriberId subscriberId,
+            const std::vector<std::string>& topicTokens) = 0;
+
+    virtual std::vector<SubscriberId> getSubscriptionMatches(
+            const std::vector<std::string>& topicTokens) = 0;
 };
 
 class TopicTrie : public TopicStore
@@ -123,7 +129,9 @@ public:
     {
     }
 
-    void addTopicTokens(SubscriberId subscriberId, const std::vector<std::string>& topicTokens)
+    void addTopicTokens(
+            SubscriberId subscriberId,
+            const std::vector<std::string>& topicTokens)
     {
         TrieNode* currNode_p = &root_m;
         for (auto it = topicTokens.begin(); it != topicTokens.end(); it++)
@@ -145,7 +153,8 @@ public:
                 currNode_p = currNode_p->getChildNode(token);
             }
 
-            // Mark the node with the subscriber ID if this is the last token in the subscription string
+            // Mark the node with the subscriber ID if this is the last token in
+            // the subscription string
             //
             if (it == (topicTokens.end()-1))
             {
@@ -155,7 +164,8 @@ public:
         }
     }
 
-    std::vector<SubscriberId> getSubscriptionMatches(const std::vector<std::string>& topicTokens)
+    std::vector<SubscriberId> getSubscriptionMatches(
+            const std::vector<std::string>& topicTokens)
     {
         std::vector<SubscriberId> matches;
         TrieNode* currNode_p = &root_m;
@@ -165,8 +175,6 @@ public:
     }
 
 private:
-    // TODO: Handle matching of "+" topic
-    //
     void walkTrieGetMatches(TrieNode* currNode_p,
                             std::vector<std::string>::const_iterator it,
                             std::vector<SubscriberId>& matches,
@@ -176,26 +184,63 @@ private:
         //
         if (it == topicTokens.end())
         {
+            // This handles the case where there is a multi-level wildcard child
+            // node one level past the end of the topic tokens. This case
+            // results in a match because the multi-level wildcard can match
+            // "0" or more topics.
+            //
+            if (currNode_p->hasChildNode("#"))
+            {
+                handleMultiLevelWildcardChildNode(currNode_p, matches);
+            }
+
+            // This handles the case where there the last single-level wildcard
+            //if (currNode_p->getTopic() == "+")
             return;
         }
 
         std::string token = *it;
 
-        // If the current node has a multi-level wild card child node, then all
+        // If the current node has a multi-level wildcard child node, then all
         // subscribers subscribed to that node matches the current pattern.
         //
         if (currNode_p->hasChildNode("#"))
         {
-        std::cout << "Walked node: #" << std::endl;
-            TrieNode* mlwcNode_p = currNode_p->getChildNode("#");
-            std::vector<SubscriberId> subscriberIds = mlwcNode_p->getSubscriberIds();
-            for (auto id : subscriberIds)
+            handleMultiLevelWildcardChildNode(currNode_p, matches);
+        }
+
+        // If the current node has a single-level wildcard child node, things
+        // get a little trickier... there are two cases:
+        //
+        // 1. The single-level wildcard node matched the last topic token:
+        //
+        //   Add all subscribers of that node to the list of matches
+        //
+        // 2. The single-level wildcard node didn't match the last topic token:
+        //
+        //   We want to continue to walk the trie in its own seperate state so
+        //   we can backtrack to the current state to finish walking the trie.
+        //
+        if (currNode_p->hasChildNode("+"))
+        {
+            std::cout << "Walked node: +" << std::endl;
+            TrieNode* slwcNode_p = currNode_p->getChildNode("+");
+            std::vector<std::string>::const_iterator nextTokenIt = it+1;
+
+            // If the single-level wildcard matched the last topic token, then
+            // add all subscribers of that node to the list of matches
+            //
+            if (nextTokenIt == topicTokens.end())
             {
-                matches.push_back(id);
+                addNodeSubscriptionsToMatches(slwcNode_p, matches);
+            }
+            else
+            {
+                walkTrieGetMatches(slwcNode_p, nextTokenIt, matches, topicTokens);
             }
         }
 
-        if (!currNode_p->hasChildNode(token))
+        if (!currNode_p->hasChildNode(token) && (token != "+"))
         {
             return;
         }
@@ -203,19 +248,36 @@ private:
         std::cout << "Walked node: " << token << std::endl;
         currNode_p = currNode_p->getChildNode(token);
 
-        // If this is the last token in the subscription string, add all subscribers of this node to the list of matches
+        // If this is the last token in the subscription string, then add all
+        // subscribers of this node to the list of matches
         //
         if (it == (topicTokens.end()-1))
         {
-            std::vector<SubscriberId> subscriberIds = currNode_p->getSubscriberIds();
-            for (auto id : subscriberIds)
-            {
-                matches.push_back(id);
-            }
-            return;
+            addNodeSubscriptionsToMatches(currNode_p, matches);
         }
 
         walkTrieGetMatches(currNode_p, ++it, matches, topicTokens);
+    }
+
+    void handleMultiLevelWildcardChildNode(
+            TrieNode* currNode_p,
+            std::vector<SubscriberId>& matches)
+    {
+        std::cout << "Walked node: #" << std::endl;
+        TrieNode* mlwcNode_p = currNode_p->getChildNode("#");
+        addNodeSubscriptionsToMatches(mlwcNode_p, matches);
+    }
+
+    void addNodeSubscriptionsToMatches(
+            TrieNode* node_p,
+            std::vector<SubscriberId>& matches)
+    {
+        std::vector<SubscriberId> subscriberIds = node_p->getSubscriberIds();
+        for (auto id : subscriberIds)
+        {
+            matches.push_back(id);
+            std::cout << "Match id: " << id << std::endl;
+        }
     }
 
     TrieNode root_m;
@@ -291,6 +353,10 @@ int main(int argc, char* argv[])
     subscriptionList_g.push_back(SubscriptionRequest("Subcriber10", "b/+/c"));
     subscriptionList_g.push_back(SubscriptionRequest("Subcriber11", "+/+/c"));
     subscriptionList_g.push_back(SubscriptionRequest("Subcriber12", "+/#"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber13", "b/b/#"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber14", "b/b/c/#"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber15", "b/b/+"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber16", "b/b/c/+"));
 
     topicManager_g.addSubscriptionList(subscriptionList_g);
 
