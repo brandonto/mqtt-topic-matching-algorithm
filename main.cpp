@@ -8,10 +8,10 @@ typedef std::string SubscriberId;
 class SubscriptionRequest
 {
 public:
-    SubscriptionRequest(SubscriberId subscriberId, std::string subscription)
+    SubscriptionRequest(SubscriberId subscriberId, std::string topic)
     {
         subscriberId_m = subscriberId;
-        subscription_m = subscription;
+        topic_m = topic;
     }
 
     SubscriberId getSubscriberId()
@@ -19,19 +19,19 @@ public:
         return subscriberId_m;
     }
 
-    std::string getSubscription()
+    std::string getTopic()
     {
-        return subscription_m;
+        return topic_m;
     }
 
     friend std::ostream &operator<<(std::ostream &s, const SubscriptionRequest& req)
     {
-        return s << "(" << req.subscriberId_m << ", " << req.subscription_m << ")";
+        return s << "(" << req.subscriberId_m << ", " << req.topic_m << ")";
     }
 
 private:
     SubscriberId subscriberId_m;
-    std::string subscription_m;
+    std::string topic_m;
 };
 
 typedef std::vector<SubscriptionRequest> SubscriptionList;
@@ -48,8 +48,8 @@ void dumpSubscriptionList(SubscriptionList& list)
 class TopicStore
 {
 public:
-    virtual void addSubscriptionTokens(SubscriberId subscriberId, std::vector<std::string> subscriptionTokens) = 0;
-    virtual std::vector<SubscriberId> getSubscriptionMatches(std::vector<std::string> subscriptionTokens) = 0;
+    virtual void addTopicTokens(SubscriberId subscriberId, const std::vector<std::string>& topicTokens) = 0;
+    virtual std::vector<SubscriberId> getSubscriptionMatches(const std::vector<std::string>& topicTokens) = 0;
 };
 
 class TopicTrie : public TopicStore
@@ -123,15 +123,15 @@ public:
     {
     }
 
-    void addSubscriptionTokens(SubscriberId subscriberId, std::vector<std::string> subscriptionTokens)
+    void addTopicTokens(SubscriberId subscriberId, const std::vector<std::string>& topicTokens)
     {
         TrieNode* currNode_p = &root_m;
-        for (auto it = subscriptionTokens.begin(); it != subscriptionTokens.end(); it++)
+        for (auto it = topicTokens.begin(); it != topicTokens.end(); it++)
         {
             std::string token = *it;
             if (currNode_p->hasChildNode(token))
             {
-                std::cout << "Walked node: " << token << std::endl;
+                //std::cout << "Walked node: " << token << std::endl;
                 currNode_p = currNode_p->getChildNode(token);
             }
             else
@@ -141,53 +141,83 @@ public:
                     // Error
                     return;
                 }
-                std::cout << "Created node: " << token << std::endl;
+                //std::cout << "Created node: " << token << std::endl;
                 currNode_p = currNode_p->getChildNode(token);
             }
 
             // Mark the node with the subscriber ID if this is the last token in the subscription string
             //
-            if (it == (subscriptionTokens.end()-1))
+            if (it == (topicTokens.end()-1))
             {
-                std::cout << "Adding subscriber (" << subscriberId << ") to node (" << currNode_p->getTopic() << ")" << std::endl;
+                //std::cout << "Adding subscriber (" << subscriberId << ") to node (" << currNode_p->getTopic() << ")" << std::endl;
                 currNode_p->addSubscriberId(subscriberId);
             }
         }
     }
 
-    // TODO: Handle '+' and '#' tokens correctly
-    //
-    std::vector<SubscriberId> getSubscriptionMatches(std::vector<std::string> subscriptionTokens)
+    std::vector<SubscriberId> getSubscriptionMatches(const std::vector<std::string>& topicTokens)
     {
         std::vector<SubscriberId> matches;
         TrieNode* currNode_p = &root_m;
-        for (auto it = subscriptionTokens.begin(); it != subscriptionTokens.end(); it++)
-        {
-            std::string token = *it;
-
-            if (!currNode_p->hasChildNode(token))
-            {
-                break;
-            }
-
-            std::cout << "Walked node: " << token << std::endl;
-            currNode_p = currNode_p->getChildNode(token);
-
-            // If this is the last token in the subscription string, add all subscribers of this node to the list of matches
-            //
-            if (it == (subscriptionTokens.end()-1))
-            {
-                std::vector<SubscriberId> subscriberIds = currNode_p->getSubscriberIds();
-                for (auto id : subscriberIds)
-                {
-                    matches.push_back(id);
-                }
-            }
-        }
+        std::vector<std::string>::const_iterator it = topicTokens.begin();
+        walkTrieGetMatches(currNode_p, it, matches, topicTokens);
         return matches;
     }
 
 private:
+    // TODO: Handle matching of "+" topic
+    //
+    void walkTrieGetMatches(TrieNode* currNode_p,
+                            std::vector<std::string>::const_iterator it,
+                            std::vector<SubscriberId>& matches,
+                            const std::vector<std::string>& topicTokens)
+    {
+        // End of the tokens
+        //
+        if (it == topicTokens.end())
+        {
+            return;
+        }
+
+        std::string token = *it;
+
+        // If the current node has a multi-level wild card child node, then all
+        // subscribers subscribed to that node matches the current pattern.
+        //
+        if (currNode_p->hasChildNode("#"))
+        {
+        std::cout << "Walked node: #" << std::endl;
+            TrieNode* mlwcNode_p = currNode_p->getChildNode("#");
+            std::vector<SubscriberId> subscriberIds = mlwcNode_p->getSubscriberIds();
+            for (auto id : subscriberIds)
+            {
+                matches.push_back(id);
+            }
+        }
+
+        if (!currNode_p->hasChildNode(token))
+        {
+            return;
+        }
+
+        std::cout << "Walked node: " << token << std::endl;
+        currNode_p = currNode_p->getChildNode(token);
+
+        // If this is the last token in the subscription string, add all subscribers of this node to the list of matches
+        //
+        if (it == (topicTokens.end()-1))
+        {
+            std::vector<SubscriberId> subscriberIds = currNode_p->getSubscriberIds();
+            for (auto id : subscriberIds)
+            {
+                matches.push_back(id);
+            }
+            return;
+        }
+
+        walkTrieGetMatches(currNode_p, ++it, matches, topicTokens);
+    }
+
     TrieNode root_m;
 };
 
@@ -207,8 +237,8 @@ public:
     void addSubscription(SubscriptionRequest& req)
     {
         std::cout << "Adding subscription: " << req << std::endl;
-        std::vector<std::string> subscriptionTokens = tokenizeSubscription(req.getSubscription());
-        store_mp->addSubscriptionTokens(req.getSubscriberId(), subscriptionTokens);
+        std::vector<std::string> topicTokens = tokenizeTopic(req.getTopic());
+        store_mp->addTopicTokens(req.getSubscriberId(), topicTokens);
     }
 
     void addSubscriptionList(SubscriptionList& list)
@@ -219,24 +249,25 @@ public:
         }
     }
 
-    std::vector<SubscriberId> getSubscriptionMatches(std::string subscription)
+    std::vector<SubscriberId> getSubscriptionMatches(std::string topic)
     {
-        std::vector<std::string> subscriptionTokens = tokenizeSubscription(subscription);
-        return store_mp->getSubscriptionMatches(subscriptionTokens);
+        std::cout << "Getting matches for topic: " << topic << std::endl;
+        std::vector<std::string> topicTokens = tokenizeTopic(topic);
+        return store_mp->getSubscriptionMatches(topicTokens);
     }
 
 private:
-    std::vector<std::string> tokenizeSubscription(std::string subscription)
+    std::vector<std::string> tokenizeTopic(std::string topic)
     {
-        std::vector<std::string> subscriptionTokens;
+        std::vector<std::string> topicTokens;
         std::string item;
-        std::stringstream ss(subscription);
+        std::stringstream ss(topic);
         while (std::getline(ss, item, '/'))
         {
-            subscriptionTokens.push_back(item);
+            topicTokens.push_back(item);
         }
 
-        return subscriptionTokens;
+        return topicTokens;
     }
 
     TopicStore* store_mp;
@@ -247,12 +278,19 @@ int main(int argc, char* argv[])
 {
     // Initialize subscription list
     //
-    subscriptionList_g.push_back(SubscriptionRequest("Subcriber1", "a/c/c"));
-    subscriptionList_g.push_back(SubscriptionRequest("Subcriber1", "b/b/c"));
-    subscriptionList_g.push_back(SubscriptionRequest("Subcriber2", "a/+/b/c"));
-    subscriptionList_g.push_back(SubscriptionRequest("Subcriber3", "a/#/c"));
-    subscriptionList_g.push_back(SubscriptionRequest("Subcriber4", "b/b/c"));
-    subscriptionList_g.push_back(SubscriptionRequest("Subcriber5", "b/#"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber01", "a/c/c"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber01", "b/b/c"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber02", "a/+/b/c"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber03", "a/#"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber04", "b/b/c"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber05", "b/#"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber06", "+"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber07", "+/+"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber08", "+/a"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber09", "#"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber10", "b/+/c"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber11", "+/+/c"));
+    subscriptionList_g.push_back(SubscriptionRequest("Subcriber12", "+/#"));
 
     topicManager_g.addSubscriptionList(subscriptionList_g);
 
