@@ -41,8 +41,6 @@ private:
 };
 
 typedef std::vector<Subscription> SubscriptionList;
-SubscriptionList subscriptionList_g;
-
 void dumpSubscriptionList(SubscriptionList& list)
 {
     for (auto& req : list)
@@ -87,10 +85,6 @@ public:
 
         ~TrieNode()
         {
-            //for (auto it = nodes_m.begin(); it != nodes_m.end(); it++)
-            //{
-            //    delete (*it).second;
-            //}
             nodes_m.clear();
         }
 
@@ -108,7 +102,6 @@ public:
 
         bool createChildNode(std::string topic)
         {
-            //nodes_m[topic] = new TrieNode(topic);
             nodes_m[topic] = TrieNodePtr(new TrieNode(topic));
             return true;
         }
@@ -250,7 +243,9 @@ private:
             //
             if (currNode_p->hasChildNode("#"))
             {
-                handleMultiLevelWildcardChildNode(currNode_p, matches);
+                //std::cout << "Walked node: #" << std::endl;
+                TrieNodePtr mlwcNode_p = currNode_p->getChildNode("#");
+                addNodeSubscriptionsToMatches(mlwcNode_p, matches);
             }
 
             return;
@@ -263,7 +258,9 @@ private:
         //
         if (currNode_p->hasChildNode("#"))
         {
-            handleMultiLevelWildcardChildNode(currNode_p, matches);
+            //std::cout << "Walked node: #" << std::endl;
+            TrieNodePtr mlwcNode_p = currNode_p->getChildNode("#");
+            addNodeSubscriptionsToMatches(mlwcNode_p, matches);
         }
 
         // If the current node has a single-level wildcard child node, things
@@ -364,15 +361,6 @@ private:
         return true;
     }
 
-    void handleMultiLevelWildcardChildNode(
-            TrieNodePtr currNode_p,
-            std::vector<SubscriberId>& matches)
-    {
-        //std::cout << "Walked node: #" << std::endl;
-        TrieNodePtr mlwcNode_p = currNode_p->getChildNode("#");
-        addNodeSubscriptionsToMatches(mlwcNode_p, matches);
-    }
-
     void addNodeSubscriptionsToMatches(
             TrieNodePtr node_p,
             std::vector<SubscriberId>& matches)
@@ -408,14 +396,6 @@ public:
         store_mp->addTopicSubscription(sub.getSubscriberId(), topicTokens);
     }
 
-    void addSubscriptionList(const SubscriptionList& list)
-    {
-        for (auto& req : list)
-        {
-            addSubscription(req);
-        }
-    }
-
     bool removeSubscription(Subscription sub)
     {
         std::cout << "Removing subscription: " << sub << std::endl;
@@ -446,7 +426,6 @@ private:
 
     TopicStore* store_mp;
 };
-TopicManager topicManager_g;
 
 void dumpTopicMatches(const std::vector<std::string> &matches)
 {
@@ -460,53 +439,59 @@ void dumpTopicMatches(const std::vector<std::string> &matches)
 
 int main(int argc, char* argv[])
 {
+    SubscriptionList subscriptionList;
+    TopicManager topicManager;
+
     // Initialize subscription list
     //
-    //subscriptionList_g.push_back(Subscription("Subscriber01", "a/c/c"));
-    //subscriptionList_g.push_back(Subscription("Subscriber01", "b/b/c"));
-    //subscriptionList_g.push_back(Subscription("Subscriber02", "a/+/b/c"));
-    //subscriptionList_g.push_back(Subscription("Subscriber03", "a/#"));
-    //subscriptionList_g.push_back(Subscription("Subscriber04", "b/b/c"));
-    //subscriptionList_g.push_back(Subscription("Subscriber05", "b/#"));
-    //subscriptionList_g.push_back(Subscription("Subscriber06", "+"));
-    //subscriptionList_g.push_back(Subscription("Subscriber07", "+/+"));
-    //subscriptionList_g.push_back(Subscription("Subscriber08", "+/a"));
-    //subscriptionList_g.push_back(Subscription("Subscriber09", "#"));
-    //subscriptionList_g.push_back(Subscription("Subscriber10", "b/+/c"));
-    //subscriptionList_g.push_back(Subscription("Subscriber11", "+/+/c"));
-    //subscriptionList_g.push_back(Subscription("Subscriber12", "+/#"));
-    //subscriptionList_g.push_back(Subscription("Subscriber13", "b/b/#"));
-    //subscriptionList_g.push_back(Subscription("Subscriber14", "b/b/c/#"));
-    //subscriptionList_g.push_back(Subscription("Subscriber15", "b/b/+"));
-    //subscriptionList_g.push_back(Subscription("Subscriber16", "b/b/c/+"));
-    subscriptionList_g.push_back(Subscription("Subscriber01", "a/b/d"));
-    subscriptionList_g.push_back(Subscription("Subscriber02", "a/c"));
+    //subscriptionList.push_back(Subscription("Subscriber01", "a/c/c"));
+    //subscriptionList.push_back(Subscription("Subscriber01", "b/b/c"));
+    //subscriptionList.push_back(Subscription("Subscriber02", "a/+/b/c"));
+    //subscriptionList.push_back(Subscription("Subscriber03", "a/#"));
+    //subscriptionList.push_back(Subscription("Subscriber04", "b/b/c"));
+    //subscriptionList.push_back(Subscription("Subscriber05", "b/#"));
+    //subscriptionList.push_back(Subscription("Subscriber06", "+"));
+    //subscriptionList.push_back(Subscription("Subscriber07", "+/+"));
+    //subscriptionList.push_back(Subscription("Subscriber08", "+/a"));
+    //subscriptionList.push_back(Subscription("Subscriber09", "#"));
+    //subscriptionList.push_back(Subscription("Subscriber10", "b/+/c"));
+    //subscriptionList.push_back(Subscription("Subscriber11", "+/+/c"));
+    //subscriptionList.push_back(Subscription("Subscriber12", "+/#"));
+    //subscriptionList.push_back(Subscription("Subscriber13", "b/b/#"));
+    //subscriptionList.push_back(Subscription("Subscriber14", "b/b/c/#"));
+    //subscriptionList.push_back(Subscription("Subscriber15", "b/b/+"));
+    //subscriptionList.push_back(Subscription("Subscriber16", "b/b/c/+"));
+    subscriptionList.push_back(Subscription("Subscriber01", "a/b/d"));
+    subscriptionList.push_back(Subscription("Subscriber02", "a/c"));
 
-    topicManager_g.addSubscriptionList(subscriptionList_g);
+    for (auto &sub : subscriptionList)
+    {
+        topicManager.addSubscription(sub);
+    }
 
-    //dumpTopicMatches(topicManager_g.getSubscriptionMatches("b/b/c"));
+    //dumpTopicMatches(topicManager.getSubscriptionMatches("b/b/c"));
 
-    dumpTopicMatches(topicManager_g.getSubscriptionMatches("a/b/d"));
-    dumpTopicMatches(topicManager_g.getSubscriptionMatches("a/b"));
-    dumpTopicMatches(topicManager_g.getSubscriptionMatches("a/c"));
+    dumpTopicMatches(topicManager.getSubscriptionMatches("a/b/d"));
+    dumpTopicMatches(topicManager.getSubscriptionMatches("a/b"));
+    dumpTopicMatches(topicManager.getSubscriptionMatches("a/c"));
 
-    topicManager_g.removeSubscription(Subscription("Subscriber01", "a/b/d"));
+    topicManager.removeSubscription(Subscription("Subscriber01", "a/b/d"));
 
-    dumpTopicMatches(topicManager_g.getSubscriptionMatches("a/b/d"));
-    dumpTopicMatches(topicManager_g.getSubscriptionMatches("a/b"));
-    dumpTopicMatches(topicManager_g.getSubscriptionMatches("a/c"));
+    dumpTopicMatches(topicManager.getSubscriptionMatches("a/b/d"));
+    dumpTopicMatches(topicManager.getSubscriptionMatches("a/b"));
+    dumpTopicMatches(topicManager.getSubscriptionMatches("a/c"));
 
-    topicManager_g.removeSubscription(Subscription("Subscriber02", "a"));
+    topicManager.removeSubscription(Subscription("Subscriber02", "a"));
 
-    dumpTopicMatches(topicManager_g.getSubscriptionMatches("a/b/d"));
-    dumpTopicMatches(topicManager_g.getSubscriptionMatches("a/b"));
-    dumpTopicMatches(topicManager_g.getSubscriptionMatches("a/c"));
+    dumpTopicMatches(topicManager.getSubscriptionMatches("a/b/d"));
+    dumpTopicMatches(topicManager.getSubscriptionMatches("a/b"));
+    dumpTopicMatches(topicManager.getSubscriptionMatches("a/c"));
 
-    topicManager_g.removeSubscription(Subscription("Subscriber02", "a/c"));
+    topicManager.removeSubscription(Subscription("Subscriber02", "a/c"));
 
-    dumpTopicMatches(topicManager_g.getSubscriptionMatches("a/b/d"));
-    dumpTopicMatches(topicManager_g.getSubscriptionMatches("a/b"));
-    dumpTopicMatches(topicManager_g.getSubscriptionMatches("a/c"));
+    dumpTopicMatches(topicManager.getSubscriptionMatches("a/b/d"));
+    dumpTopicMatches(topicManager.getSubscriptionMatches("a/b"));
+    dumpTopicMatches(topicManager.getSubscriptionMatches("a/c"));
 
     return 0;
 }
